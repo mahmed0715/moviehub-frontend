@@ -1,66 +1,83 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import API from '../../services/api';
 import { io } from 'socket.io-client';
-const userId = localStorage.getItem('userId');
+
 function MovieDetails() {
   const { id } = useParams();
   const [movie, setMovie] = useState(null);
   const [rating, setRating] = useState(0);
-  const socket = io(import.meta.env.VITE_API_URL, { withCredentials: true });
+  const socket = useRef(null); // useRef to avoid re-creating socket
+  const userId = localStorage.getItem('userId');
 
   useEffect(() => {
     fetchMovie();
 
-    socket.on('rating-updated', (updatedMovie) => {
+    socket.current = io(import.meta.env.VITE_API_URL, {
+      withCredentials: true,
+    });
+
+    socket.current.on('rating-updated', (updatedMovie) => {
       if (updatedMovie._id === id) {
         setMovie(updatedMovie);
       }
     });
 
     return () => {
-      socket.disconnect();
+      if (socket.current) {
+        socket.current.disconnect();
+      }
     };
-  }, []);
+  }, [id]);
 
   const fetchMovie = async () => {
-    const { data } = await API.get(`/movies/${id}`);
-    setMovie(data);
-    console.log({ratings: data.ratings.find(r => r.userId === userId)?.rating})
-    setRating(data.ratings.find(r => r.userId === userId)?.rating || 0);
+    try {
+      const { data } = await API.get(`/movies/${id}`);
+      setMovie(data);
+      const userRating = data.ratings.find((r) => r.userId === userId);
+      setRating(userRating ? userRating.rating : 0);
+    } catch (error) {
+      console.error('Failed to fetch movie:', error);
+    }
   };
 
   const handleRating = async () => {
     try {
-      await API.post(`/movies/${id}/rate`, { rating });
+      await API.post(`/movies/${id}/rate`, { rating: Number(rating) });
+      alert('Rating submitted successfully');
     } catch (err) {
-      alert(err.response.data.message);
+      alert(err.response?.data?.message || 'Rating failed');
     }
   };
 
   if (!movie) return <div>Loading...</div>;
 
   return (
-    <div>
-      <h2>{movie.title}</h2>
-      <p>{movie.description}</p>
+    <div style={{ padding: '2rem' }}>
+      <h2 style={{ fontSize: '2rem', fontWeight: 'bold' }}>{movie.title}</h2>
+      <p style={{ marginBottom: '1rem' }}>{movie.description}</p>
 
-      <div>
+      <div style={{ marginBottom: '2rem' }}>
         <input
           type="number"
           value={rating}
-          onChange={e => setRating(e.target.value)}
+          onChange={(e) => setRating(e.target.value)}
           min="1"
           max="10"
           placeholder="Rate this movie"
+          style={{ padding: '0.5rem', width: '60px', marginRight: '10px' }}
         />
-        <button onClick={handleRating}>Submit Rating</button>
+        <button onClick={handleRating} style={{ padding: '0.5rem 1rem' }}>
+          Submit Rating
+        </button>
       </div>
 
-      <h3>Ratings:</h3>
-      <ul>
+      <h3 style={{ marginBottom: '1rem' }}>Ratings:</h3>
+      <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
         {movie.ratings.map((r, index) => (
-          <li key={index}>User {r.userId}: {socket.id} {r.rating}/10</li>
+          <li key={index} style={{ marginBottom: '0.5rem' }}>
+            <strong>User {r.userId}</strong>: {r.rating}/10
+          </li>
         ))}
       </ul>
     </div>
